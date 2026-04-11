@@ -6,8 +6,8 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
-// Importação do middleware de proteção de rotas REST
 const authenticateToken = require('./src/middlewares/auth');
+const projectRoutes = require('./src/routes/projectRoutes');
 
 const app = express();
 const server = http.createServer(app);
@@ -21,7 +21,7 @@ const io = new Server(server, {
   }
 });
 
-const JWT_SECRET = process.env.JWT_SECRET || 'chave_mestre_padrao';
+const JWT_SECRET = process.env.JWT_SECRET || 'sua_chave_secreta_super_complexa';
 
 // Middleware para processar JSON no corpo das requisições
 app.use(express.json());
@@ -122,6 +122,8 @@ app.get('/me', authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Erro ao buscar dados do usuário." });
   }
 });
+
+app.use('/projects', projectRoutes);
 
 // --- 5. INICIALIZAÇÃO DO SERVIDOR ---
 const PORT = process.env.PORT || 3000;

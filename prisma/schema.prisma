@@ -1,0 +1,68 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Definição de Papéis (RBAC)
+enum Role {
+  OWNER
+  MEMBER
+  VIEWER
+}
+
+model User {
+  id        String        @id @default(uuid())
+  email     String        @unique
+  password  String
+  name      String
+  projects  UserProject[]
+  logs      AuditLog[]
+  createdAt DateTime      @default(now())
+}
+
+model Project {
+  id        String        @id @default(uuid())
+  title     String
+  tasks     Task[]
+  members   UserProject[]
+  logs      AuditLog[]
+  createdAt DateTime      @default(now())
+}
+
+// Tabela de junção para gerenciar quem está em qual projeto e qual seu nível de acesso
+model UserProject {
+  id        String  @id @default(uuid())
+  userId    String
+  projectId String
+  role      Role    @default(MEMBER)
+  
+  user    User    @relation(fields: [userId], references: [id])
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@unique([userId, projectId]) // Um usuário não pode ter dois papéis no mesmo projeto
+}
+
+model Task {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  status      String   // Ex: "TODO", "DOING", "DONE"
+  order       Int      // Para ordenação no Kanban
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  updatedAt   DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String   // Ex: "TASK_MOVED", "TASK_CREATED"
+  userId    String
+  projectId String
+  user      User     @relation(fields: [userId], references: [id])
+  project   Project  @relation(fields: [projectId], references: [id])
+  createdAt DateTime @default(now())
+}

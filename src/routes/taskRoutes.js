@@ -2,10 +2,22 @@ const express = require('express');
 const router = express.Router();
 const taskController = require('../controllers/taskController');
 const authenticateToken = require('../middlewares/auth');
+const checkPermission = require('../middlewares/rbac');
 
 router.use(authenticateToken);
 
-router.post('/', taskController.createTask);
-router.patch('/:id/status', taskController.updateTaskStatus);
+// Apenas OWNER e MEMBER podem criar tarefas
+router.post(
+  '/', 
+  checkPermission(['OWNER', 'MEMBER']), 
+  taskController.createTask
+);
+
+// Apenas OWNER e MEMBER podem mover tarefas (VIEWER só olha)
+router.patch(
+  '/:id/status', 
+  checkPermission(['OWNER', 'MEMBER']), 
+  taskController.updateTaskStatus
+);
 
 module.exports = router;

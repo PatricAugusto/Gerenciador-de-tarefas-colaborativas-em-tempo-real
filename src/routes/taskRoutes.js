@@ -20,4 +20,10 @@ router.patch(
   taskController.updateTaskStatus
 );
 
+router.get(
+  '/project/:projectId', 
+  checkPermission(['OWNER', 'MEMBER', 'VIEWER']), 
+  taskController.listTasks
+);
+
 module.exports = router;

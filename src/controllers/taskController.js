@@ -56,3 +56,28 @@ exports.updateTaskStatus = async (req, res) => {
     res.status(500).json({ error: "Erro ao mover tarefa." });
   }
 };
+
+exports.listTasks = async (req, res) => {
+  const { projectId } = req.params;
+  const { limit = 10, cursor } = req.query; // Recebemos via Query Params
+
+  try {
+    const tasks = await prisma.task.findMany({
+      take: Number(limit), // Quantidade de itens
+      skip: cursor ? 1 : 0, // Se houver cursor, pula o próprio item do cursor
+      cursor: cursor ? { id: cursor } : undefined,
+      where: { projectId },
+      orderBy: { createdAt: 'desc' } // Tarefas mais recentes primeiro
+    });
+
+    // Pegamos o ID do último item para ser o próximo cursor
+    const nextCursor = tasks.length > 0 ? tasks[tasks.length - 1].id : null;
+
+    res.json({
+      tasks,
+      nextCursor
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Erro ao listar tarefas com paginação." });
+  }
+};

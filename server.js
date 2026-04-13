@@ -8,10 +8,12 @@ require('dotenv').config();
 
 const authenticateToken = require('./src/middlewares/auth');
 const projectRoutes = require('./src/routes/projectRoutes');
+const taskRoutes = require('./src/routes/taskRoutes');
 
 const app = express();
 const server = http.createServer(app);
 const prisma = new PrismaClient();
+app.set('io', io);
 
 // Configuração do Socket.io com CORS
 const io = new Server(server, {
@@ -124,6 +126,7 @@ app.get('/me', authenticateToken, async (req, res) => {
 });
 
 app.use('/projects', projectRoutes);
+app.use('/tasks', taskRoutes);
 
 // --- 5. INICIALIZAÇÃO DO SERVIDOR ---
 const PORT = process.env.PORT || 3000;

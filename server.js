@@ -13,7 +13,6 @@ const taskRoutes = require('./src/routes/taskRoutes');
 const app = express();
 const server = http.createServer(app);
 const prisma = new PrismaClient();
-app.set('io', io);
 
 // Configuração do Socket.io com CORS
 const io = new Server(server, {
@@ -22,6 +21,8 @@ const io = new Server(server, {
     methods: ["GET", "POST"]
   }
 });
+
+app.set('io', io);
 
 const JWT_SECRET = process.env.JWT_SECRET || 'sua_chave_secreta_super_complexa';
 

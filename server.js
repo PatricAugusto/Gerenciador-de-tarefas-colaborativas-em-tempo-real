@@ -9,6 +9,7 @@ require('dotenv').config();
 const authenticateToken = require('./src/middlewares/auth');
 const projectRoutes = require('./src/routes/projectRoutes');
 const taskRoutes = require('./src/routes/taskRoutes');
+const auditRoutes = require('./src/routes/auditRoutes');
 
 const app = express();
 const server = http.createServer(app);
@@ -128,6 +129,7 @@ app.get('/me', authenticateToken, async (req, res) => {
 
 app.use('/projects', projectRoutes);
 app.use('/tasks', taskRoutes);
+app.use('/audit', auditRoutes);
 
 // --- 5. INICIALIZAÇÃO DO SERVIDOR ---
 const PORT = process.env.PORT || 3000;

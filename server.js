@@ -23,12 +23,12 @@ const io = new Server(server, {
   }
 });
 
-app.set('io', io);
-
 const JWT_SECRET = process.env.JWT_SECRET || 'sua_chave_secreta_super_complexa';
 
 // Middleware para processar JSON no corpo das requisições
 app.use(express.json());
+
+app.set('io', io);
 
 // --- 1. MIDDLEWARE DE SEGURANÇA (WEBSOCKETS) ---
 // Impede que usuários não autenticados conectem ao Socket.io

@@ -1,4 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
+const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
 /**
@@ -8,10 +8,17 @@ const checkPermission = (allowedRoles) => {
   return async (req, res, next) => {
     const userId = req.userId;
     // O ID do projeto pode vir do corpo (POST) ou dos parâmetros (GET/PATCH)
-    const projectId = req.body.projectId || req.params.projectId;
+    const projectId = req.params.projectId || (req.body && req.body.projectId);
+
+    console.log("DEBUG RBAC - UserID:", userId);
+    console.log("DEBUG RBAC - ProjectID:", projectId);
 
     if (!projectId) {
-      return res.status(400).json({ error: "ID do projeto é obrigatório para verificar permissões." });
+      return res
+        .status(400)
+        .json({
+          error: "ID do projeto é obrigatório para verificar permissões.",
+        });
     }
 
     try {
@@ -19,14 +26,15 @@ const checkPermission = (allowedRoles) => {
         where: {
           userId_projectId: {
             userId: userId,
-            projectId: projectId
-          }
-        }
+            projectId: projectId,
+          },
+        },
       });
 
       if (!membership || !allowedRoles.includes(membership.role)) {
-        return res.status(403).json({ 
-          error: "Acesso negado. Você não tem permissão para realizar esta ação." 
+        return res.status(403).json({
+          error:
+            "Acesso negado. Você não tem permissão para realizar esta ação.",
         });
       }
 

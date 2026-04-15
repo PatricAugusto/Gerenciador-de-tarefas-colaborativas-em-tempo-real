@@ -15,9 +15,9 @@ router.post(
 
 // Apenas OWNER e MEMBER podem mover tarefas (VIEWER só olha)
 router.patch(
-  '/:id/status', 
+  '/:id/move', 
   checkPermission(['OWNER', 'MEMBER']), 
-  taskController.updateTaskStatus
+  taskController.moveTask
 );
 
 router.get(

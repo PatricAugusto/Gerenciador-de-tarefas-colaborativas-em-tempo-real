@@ -81,3 +81,66 @@ exports.listTasks = async (req, res) => {
     res.status(500).json({ error: "Erro ao listar tarefas com paginação." });
   }
 };
+
+exports.moveTask = async (req, res) => {
+  const { id } = req.params; // ID da tarefa sendo movida
+  const { projectId, newStatus, newOrder } = req.body;
+  const userId = req.userId;
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      // 1. Buscamos a tarefa atual para saber de onde ela veio
+      const currentTask = await tx.task.findUnique({ where: { id } });
+
+      if (!currentTask) throw new Error("Tarefa não encontrada.");
+
+      // 2. "Empurrar" as tarefas para baixo na coluna de destino para abrir espaço
+      // Incrementamos o 'order' de todas as tarefas que estão na mesma posição ou abaixo
+      await tx.task.updateMany({
+        where: {
+          projectId,
+          status: newStatus,
+          order: { gte: newOrder },
+        },
+        data: {
+          order: { increment: 1 },
+        },
+      });
+
+      // 3. Atualizar a tarefa movida com o novo status e nova ordem
+      const updatedTask = await tx.task.update({
+        where: { id },
+        data: {
+          status: newStatus,
+          order: newOrder,
+        },
+      });
+
+      // 4. Log de Auditoria
+      await tx.auditLog.create({
+        data: {
+          action: 'TASK_MOVED',
+          userId,
+          projectId,
+          details: `Moveu para ${newStatus} na posição ${newOrder}`
+        }
+      });
+
+      // 5. Notificar via Socket.io em tempo real
+      const io = req.app.get('io');
+      io.to(projectId).emit('task_reordered', {
+        taskId: id,
+        newStatus,
+        newOrder,
+        movedBy: userId
+      });
+
+      return updatedTask;
+    });
+
+    res.json({ message: "Tarefa reordenada com sucesso." });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Erro ao processar reordenação." });
+  }
+};

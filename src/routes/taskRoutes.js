@@ -22,8 +22,8 @@ router.patch(
 
 router.get(
   '/project/:projectId', 
-  checkPermission(['OWNER', 'MEMBER', 'VIEWER']), 
-  taskController.listTasks
+  checkPermission(['OWNER', 'MEMBER']), 
+  taskController.getTasksByProject
 );
 
 module.exports = router;

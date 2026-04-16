@@ -1,38 +1,43 @@
-const { PrismaClient } = require('@prisma/client');
+const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
 exports.createTask = async (req, res) => {
-  const { title, description, status, projectId } = req.body;
+  const { title, description, projectId } = req.body;
   const userId = req.userId;
 
   try {
-    // 1. Criar a tarefa no banco
-    const task = await prisma.task.create({
+    // Descobrir qual a próxima ordem (opcional, ou podemos deixar 0 por padrão)
+    const taskCount = await prisma.task.count({
+      where: { projectId },
+    });
+
+    const newTask = await prisma.task.create({
       data: {
         title,
-        description,
-        status: status || "TODO",
-        order: 0, // No futuro, podemos calcular a ordem baseada nas tarefas existentes
-        projectId
-      }
+        description: description || "",
+        status: "TODO", // Valor padrão
+        order: taskCount,
+        projectId: projectId,
+        // Se houver relação com usuário que criou:
+        // creatorId: userId
+      },
     });
 
-    // 2. Registrar log de auditoria
     await prisma.auditLog.create({
       data: {
-        action: 'TASK_CREATED',
-        userId,
-        projectId
-      }
+        action: "TASK_CREATED",
+        userId: userId,
+        projectId: projectId,
+      },
     });
 
-    // 3. EM TEMPO REAL: Notificar todos na sala do projeto (exceto quem enviou)
-    // Precisamos acessar o 'io' globalmente. Uma forma limpa é via req.app.get
-    const io = req.app.get('io');
-    io.to(projectId).emit('task_created', task);
+    // 3. Notificar via Socket
+    const io = req.app.get("io");
+    io.to(projectId).emit("task_created", newTask);
 
-    res.status(201).json(task);
+    res.status(201).json(newTask);
   } catch (error) {
+    console.error("ERRO NO TERMINAL:", error);
     res.status(500).json({ error: "Erro ao criar tarefa." });
   }
 };
@@ -44,12 +49,12 @@ exports.updateTaskStatus = async (req, res) => {
   try {
     const updatedTask = await prisma.task.update({
       where: { id },
-      data: { status }
+      data: { status },
     });
 
     // Notificar mudança de posição/coluna no Kanban
-    const io = req.app.get('io');
-    io.to(projectId).emit('task_moved', updatedTask);
+    const io = req.app.get("io");
+    io.to(projectId).emit("task_moved", updatedTask);
 
     res.json(updatedTask);
   } catch (error) {
@@ -57,7 +62,7 @@ exports.updateTaskStatus = async (req, res) => {
   }
 };
 
-exports.listTasks = async (req, res) => {
+exports.getTasksByProject = async (req, res) => {
   const { projectId } = req.params;
   const { limit = 10, cursor } = req.query; // Recebemos via Query Params
 
@@ -67,7 +72,7 @@ exports.listTasks = async (req, res) => {
       skip: cursor ? 1 : 0, // Se houver cursor, pula o próprio item do cursor
       cursor: cursor ? { id: cursor } : undefined,
       where: { projectId },
-      orderBy: { createdAt: 'desc' } // Tarefas mais recentes primeiro
+      orderBy: { createdAt: "desc" }, // Tarefas mais recentes primeiro
     });
 
     // Pegamos o ID do último item para ser o próximo cursor
@@ -75,7 +80,7 @@ exports.listTasks = async (req, res) => {
 
     res.json({
       tasks,
-      nextCursor
+      nextCursor,
     });
   } catch (error) {
     res.status(500).json({ error: "Erro ao listar tarefas com paginação." });
@@ -119,20 +124,19 @@ exports.moveTask = async (req, res) => {
       // 4. Log de Auditoria
       await tx.auditLog.create({
         data: {
-          action: 'TASK_MOVED',
+          action: "TASK_MOVED",
           userId,
           projectId,
-          details: `Moveu para ${newStatus} na posição ${newOrder}`
-        }
+        },
       });
 
       // 5. Notificar via Socket.io em tempo real
-      const io = req.app.get('io');
-      io.to(projectId).emit('task_reordered', {
+      const io = req.app.get("io");
+      io.to(projectId).emit("task_reordered", {
         taskId: id,
         newStatus,
         newOrder,
-        movedBy: userId
+        movedBy: userId,
       });
 
       return updatedTask;

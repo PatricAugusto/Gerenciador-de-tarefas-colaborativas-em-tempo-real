@@ -1,70 +1,83 @@
-const { PrismaClient } = require("@prisma/client");
+const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-// Criar um novo projeto e já vincular o criador como OWNER
+/**
+ * @desc    Cria um novo projeto e vincula automaticamente o criador como OWNER.
+ * @route   POST /projects
+ * @access  Private
+ */
 exports.createProject = async (req, res) => {
   const { title } = req.body;
-  const userId = req.userId; // Capturado pelo middleware de autenticação
+  const userId = req.userId; // Extraído do Token JWT pelo middleware de auth
 
   try {
+    // Usamos o Nested Write do Prisma para garantir a atomicidade da operação
     const newProject = await prisma.project.create({
       data: {
         title,
-        // Relacionamento Nested Write: Cria o projeto e o vínculo RBAC simultaneamente
-        users: {
+        // 'members' deve bater com o nome definido no seu schema.prisma
+        members: {
           create: {
             userId: userId,
-            role: "OWNER",
-          },
-        },
+            role: 'OWNER'
+          }
+        }
       },
       include: {
-        users: true, // Opcional: retorna os dados do vínculo na resposta
-      },
+        members: true // Retorna os vínculos criados para conferência
+      }
     });
 
-    // Auditoria: Registra que um projeto foi criado
+    // Auditoria: Registra o histórico de criação
     await prisma.auditLog.create({
       data: {
-        action: "PROJECT_CREATED",
+        action: 'PROJECT_CREATED',
         userId,
         projectId: newProject.id,
-        details: `Projeto "${title}" criado.`,
-      },
+      }
     });
 
     res.status(201).json(newProject);
   } catch (error) {
     console.error("Erro ao criar projeto:", error);
-    res.status(500).json({ error: "Erro ao criar projeto." });
+    res.status(500).json({ error: "Erro interno ao processar a criação do projeto." });
   }
 };
 
-// Listar todos os projetos em que o usuário está vinculado
+/**
+ * @desc    Lista todos os projetos aos quais o usuário autenticado pertence.
+ * @route   GET /projects
+ * @access  Private
+ */
 exports.listProjects = async (req, res) => {
   const userId = req.userId;
 
   try {
     const projects = await prisma.project.findMany({
       where: {
-        users: {
+        members: {
           some: {
-            userId: userId,
-          },
-        },
+            userId: userId
+          }
+        }
       },
       orderBy: {
-        createdAt: "desc",
-      },
+        createdAt: 'desc'
+      }
     });
 
     res.json(projects);
   } catch (error) {
-    res.status(500).json({ error: "Erro ao listar projetos." });
+    console.error("Erro ao listar projetos:", error);
+    res.status(500).json({ error: "Erro ao buscar a lista de projetos." });
   }
 };
 
-// Buscar detalhes de um projeto específico
+/**
+ * @desc    Busca detalhes de um projeto, incluindo suas tarefas e membros.
+ * @route   GET /projects/:id
+ * @access  Private (Validado pelo middleware de RBAC na rota)
+ */
 exports.getProjectById = async (req, res) => {
   const { id } = req.params;
 
@@ -72,15 +85,21 @@ exports.getProjectById = async (req, res) => {
     const project = await prisma.project.findUnique({
       where: { id },
       include: {
-        tasks: true,
-        users: {
+        tasks: {
+          orderBy: { order: 'asc' } // Já traz as tarefas ordenadas para o Kanban
+        },
+        members: {
           include: {
             user: {
-              select: { name: true, email: true },
-            },
-          },
-        },
-      },
+              select: { 
+                id: true, 
+                name: true, 
+                email: true 
+              }
+            }
+          }
+        }
+      }
     });
 
     if (!project) {
@@ -89,6 +108,7 @@ exports.getProjectById = async (req, res) => {
 
     res.json(project);
   } catch (error) {
-    res.status(500).json({ error: "Erro ao buscar projeto." });
+    console.error("Erro ao buscar detalhes do projeto:", error);
+    res.status(500).json({ error: "Erro ao carregar os dados do projeto." });
   }
 };

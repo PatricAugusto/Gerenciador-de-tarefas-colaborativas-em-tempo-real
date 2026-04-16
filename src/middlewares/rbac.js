@@ -7,39 +7,26 @@ const prisma = new PrismaClient();
 const checkPermission = (allowedRoles) => {
   return async (req, res, next) => {
     const userId = req.userId;
-    // O ID do projeto pode vir do corpo (POST) ou dos parâmetros (GET/PATCH)
-    const projectId = req.params.projectId || (req.body && req.body.projectId);
-
-    console.log("DEBUG RBAC - UserID:", userId);
-    console.log("DEBUG RBAC - ProjectID:", projectId);
+    
+    const projectId = req.params.projectId || (req.body && req.body.projectId) || req.query.projectId;
 
     if (!projectId) {
-      return res
-        .status(400)
-        .json({
-          error: "ID do projeto é obrigatório para verificar permissões.",
-        });
+      return res.status(400).json({ error: "ID do projeto não fornecido." });
     }
 
     try {
-      const membership = await prisma.userProject.findUnique({
+      const userProject = await prisma.userProject.findFirst({
         where: {
-          userId_projectId: {
-            userId: userId,
-            projectId: projectId,
-          },
-        },
+          userId: userId,
+          projectId: projectId,
+          role: { in: allowedRoles } // Verifica se o cargo está na lista permitida
+        }
       });
 
-      if (!membership || !allowedRoles.includes(membership.role)) {
-        return res.status(403).json({
-          error:
-            "Acesso negado. Você não tem permissão para realizar esta ação.",
-        });
+      if (!userProject) {
+        return res.status(403).json({ error: "Acesso negado. Você não tem permissão para este projeto." });
       }
 
-      // Anexamos o cargo ao req para uso futuro se necessário
-      req.userRole = membership.role;
       next();
     } catch (error) {
       res.status(500).json({ error: "Erro ao verificar permissões." });

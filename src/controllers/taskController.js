@@ -148,3 +148,51 @@ exports.moveTask = async (req, res) => {
     res.status(500).json({ error: "Erro ao processar reordenação." });
   }
 };
+
+exports.deleteTask = async (req, res) => {
+  const { id } = req.params;
+  const userId = req.userId;
+
+  try {
+    // 1. Encontrar a tarefa para saber seu contexto antes de deletar
+    const taskToDelete = await prisma.task.findUnique({
+      where: { id }
+    });
+
+    if (!taskToDelete) {
+      return res.status(404).json({ error: "Tarefa não encontrada." });
+    }
+
+    // 2. Usar transação para garantir integridade
+    await prisma.$transaction([
+      // Deletar a tarefa
+      prisma.task.delete({
+        where: { id }
+      }),
+      // Reordenar as tarefas restantes (decrementa 1 de quem tem ordem maior que a deletada)
+      prisma.task.updateMany({
+        where: {
+          projectId: taskToDelete.projectId,
+          status: taskToDelete.status,
+          order: { gt: taskToDelete.order }
+        },
+        data: {
+          order: { decrement: 1 }
+        }
+      }),
+      // Auditoria
+      prisma.auditLog.create({
+        data: {
+          action: 'TASK_DELETED',
+          userId: userId,
+          projectId: taskToDelete.projectId
+        }
+      })
+    ]);
+
+    res.json({ message: "Tarefa excluída e lista reordenada com sucesso." });
+  } catch (error) {
+    console.error("Erro ao deletar tarefa:", error);
+    res.status(500).json({ error: "Erro interno ao excluir tarefa." });
+  }
+};

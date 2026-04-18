@@ -1,12 +1,15 @@
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
+/**
+ * Cria uma nova tarefa e registra no log de auditoria.
+ */
 exports.createTask = async (req, res) => {
   const { title, description, projectId } = req.body;
   const userId = req.userId;
 
   try {
-    // Descobrir qual a próxima ordem (opcional, ou podemos deixar 0 por padrão)
+    // Conta quantas tarefas existem para definir a ordem (ordem baseada no índice)
     const taskCount = await prisma.task.count({
       where: { projectId },
     });
@@ -15,14 +18,13 @@ exports.createTask = async (req, res) => {
       data: {
         title,
         description: description || "",
-        status: "TODO", // Valor padrão
+        status: "TODO",
         order: taskCount,
         projectId: projectId,
-        // Se houver relação com usuário que criou:
-        // creatorId: userId
       },
     });
 
+    // Registra a criação
     await prisma.auditLog.create({
       data: {
         action: "TASK_CREATED",
@@ -31,17 +33,20 @@ exports.createTask = async (req, res) => {
       },
     });
 
-    // 3. Notificar via Socket
+    // Notificação em tempo real
     const io = req.app.get("io");
     io.to(projectId).emit("task_created", newTask);
 
     res.status(201).json(newTask);
   } catch (error) {
-    console.error("ERRO NO TERMINAL:", error);
+    console.error("Erro ao criar tarefa:", error);
     res.status(500).json({ error: "Erro ao criar tarefa." });
   }
 };
 
+/**
+ * Atualiza apenas o status da tarefa (mover entre colunas sem reordenar).
+ */
 exports.updateTaskStatus = async (req, res) => {
   const { id } = req.params;
   const { status, projectId } = req.body;
@@ -52,55 +57,62 @@ exports.updateTaskStatus = async (req, res) => {
       data: { status },
     });
 
-    // Notificar mudança de posição/coluna no Kanban
     const io = req.app.get("io");
     io.to(projectId).emit("task_moved", updatedTask);
 
     res.json(updatedTask);
   } catch (error) {
+    console.error("Erro ao atualizar status:", error);
     res.status(500).json({ error: "Erro ao mover tarefa." });
   }
 };
 
+/**
+ * Lista tarefas de um projeto com paginação baseada em cursor.
+ */
 exports.getTasksByProject = async (req, res) => {
   const { projectId } = req.params;
-  const { limit = 10, cursor } = req.query; // Recebemos via Query Params
+  const { limit, cursor } = req.query;
 
   try {
+    const pageSize = parseInt(limit) || 10;
+
     const tasks = await prisma.task.findMany({
-      take: Number(limit), // Quantidade de itens
-      skip: cursor ? 1 : 0, // Se houver cursor, pula o próprio item do cursor
+      take: pageSize,
+      skip: cursor ? 1 : 0,
       cursor: cursor ? { id: cursor } : undefined,
       where: { projectId },
-      orderBy: { createdAt: "desc" }, // Tarefas mais recentes primeiro
+      orderBy: { order: "asc" }, // Ordenação visual do Kanban
     });
 
-    // Pegamos o ID do último item para ser o próximo cursor
-    const nextCursor = tasks.length > 0 ? tasks[tasks.length - 1].id : null;
+    // Define o próximo cursor baseado no último item retornado
+    const nextCursor = tasks.length === pageSize ? tasks[tasks.length - 1].id : null;
 
     res.json({
       tasks,
       nextCursor,
     });
   } catch (error) {
+    console.error("Erro detalhado no getTasksByProject:", error);
     res.status(500).json({ error: "Erro ao listar tarefas com paginação." });
   }
 };
 
+/**
+ * Move uma tarefa para um novo status e reordena as outras na coluna de destino.
+ */
 exports.moveTask = async (req, res) => {
-  const { id } = req.params; // ID da tarefa sendo movida
+  const { id } = req.params;
   const { projectId, newStatus, newOrder } = req.body;
   const userId = req.userId;
 
   try {
     await prisma.$transaction(async (tx) => {
-      // 1. Buscamos a tarefa atual para saber de onde ela veio
+      // 1. Busca tarefa original
       const currentTask = await tx.task.findUnique({ where: { id } });
-
       if (!currentTask) throw new Error("Tarefa não encontrada.");
 
-      // 2. "Empurrar" as tarefas para baixo na coluna de destino para abrir espaço
-      // Incrementamos o 'order' de todas as tarefas que estão na mesma posição ou abaixo
+      // 2. Abre espaço na coluna de destino (empurra tarefas existentes)
       await tx.task.updateMany({
         where: {
           projectId,
@@ -112,7 +124,7 @@ exports.moveTask = async (req, res) => {
         },
       });
 
-      // 3. Atualizar a tarefa movida com o novo status e nova ordem
+      // 3. Atualiza a tarefa alvo
       const updatedTask = await tx.task.update({
         where: { id },
         data: {
@@ -121,7 +133,7 @@ exports.moveTask = async (req, res) => {
         },
       });
 
-      // 4. Log de Auditoria
+      // 4. Auditoria
       await tx.auditLog.create({
         data: {
           action: "TASK_MOVED",
@@ -130,7 +142,7 @@ exports.moveTask = async (req, res) => {
         },
       });
 
-      // 5. Notificar via Socket.io em tempo real
+      // 5. Notificação via Socket
       const io = req.app.get("io");
       io.to(projectId).emit("task_reordered", {
         taskId: id,
@@ -144,17 +156,19 @@ exports.moveTask = async (req, res) => {
 
     res.json({ message: "Tarefa reordenada com sucesso." });
   } catch (error) {
-    console.error(error);
+    console.error("Erro na transação de moveTask:", error);
     res.status(500).json({ error: "Erro ao processar reordenação." });
   }
 };
 
+/**
+ * Exclui uma tarefa e ajusta a ordenação das tarefas restantes.
+ */
 exports.deleteTask = async (req, res) => {
   const { id } = req.params;
   const userId = req.userId;
 
   try {
-    // 1. Encontrar a tarefa para saber seu contexto antes de deletar
     const taskToDelete = await prisma.task.findUnique({
       where: { id }
     });
@@ -163,24 +177,20 @@ exports.deleteTask = async (req, res) => {
       return res.status(404).json({ error: "Tarefa não encontrada." });
     }
 
-    // 2. Usar transação para garantir integridade
+    // Transação para garantir consistência após exclusão
     await prisma.$transaction([
-      // Deletar a tarefa
-      prisma.task.delete({
-        where: { id }
-      }),
-      // Reordenar as tarefas restantes (decrementa 1 de quem tem ordem maior que a deletada)
+      prisma.task.delete({ where: { id } }),
+      
+      // Decrementa o order das tarefas seguintes na mesma coluna
       prisma.task.updateMany({
         where: {
           projectId: taskToDelete.projectId,
           status: taskToDelete.status,
           order: { gt: taskToDelete.order }
         },
-        data: {
-          order: { decrement: 1 }
-        }
+        data: { order: { decrement: 1 } }
       }),
-      // Auditoria
+      
       prisma.auditLog.create({
         data: {
           action: 'TASK_DELETED',
